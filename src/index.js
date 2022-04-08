@@ -7,7 +7,13 @@ const Chalk = require('chalk')
 const GeoJSONTarget = path.resolve(__dirname, '../dist/')
 const AdCodeExcel = path.resolve(__dirname, './assets/AMap_adcode_citycode.xlsx')
 const AdCodeExcel2Json = path.resolve(__dirname, './assets/AMap_adcode_citycode.json')
+const InvalidDataJson = path.resolve(__dirname, './assets/invalidData.json')
+const CityDataJson = path.resolve(__dirname, './assets/cityData.json')
+const ErrorBodyJson = path.resolve(__dirname, './assets/errorBody.json')
 
+const invalidData = []
+const cityData = []
+let errorBody = ''
 const App = {
     baseUrl: 'https://geo.datav.aliyun.com/areas_v3/bound',
     init() {
@@ -43,14 +49,21 @@ const App = {
         
         let j = 0
         let len = data.length
-        App.tryGetGeoJSON(j, len, data)
+        // let len = 1000
+        App.tryGetGeoJSON(j, len, data, 0)
     },
-    tryGetGeoJSON(j, len, data) {
-        App.getGeoJSON(data[j], () => {
+    tryGetGeoJSON(j, len, data, trueIndex) {
+        App.getGeoJSON(data[j], (hasGeoJSON) => {
             j++
+            hasGeoJSON && trueIndex++
             const rate = j === len ? 100 : ((j / len) * 100).toFixed(2)
-            console.log(Chalk.green(`Tips: 第 ${j} 条数据写入完毕, 已完成 `), `${Chalk.red(rate)} %`)
-            j < len && App.tryGetGeoJSON(j, len, data)
+            console.log(Chalk.green(`Tips: 第 ${trueIndex} 条数据写入完毕，${j - trueIndex}条无效，已完成 `), `${Chalk.red(rate)} %`)
+            fs.writeFileSync(`${InvalidDataJson}`, JSON.stringify(invalidData, null, '\t'))
+            fs.writeFileSync(`${CityDataJson}`, JSON.stringify(cityData, null, '\t'))
+            fs.writeFileSync(`${ErrorBodyJson}`, errorBody)
+            if (j < len) {
+                App.tryGetGeoJSON(j, len, data, trueIndex)
+            }
         })
     },
     getGeoJSON({ adCode, name }, cb) {
@@ -64,8 +77,25 @@ const App = {
             if (!fs.existsSync(GeoJSONTarget)) {
                 fs.mkdirSync(GeoJSONTarget)
             }
-            fs.writeFileSync(`${GeoJSONTarget}/${fileName}`, body)
-            typeof cb === 'function' && cb()
+            const hasGeoJSON = /^\{/.test(body)
+            if (hasGeoJSON) {
+                cityData.push({
+                    k: adCode,
+                    v: name
+                })
+                fs.writeFileSync(`${GeoJSONTarget}/${fileName}`, body)
+                fs.writeFileSync(`${GeoJSONTarget}/${name}.json`, body)
+            } else {
+                invalidData.push({
+                    name,
+                    adCode
+                })
+                errorBody = body
+            }
+            const delay = 1 + Math.ceil(Math.random() * 5);
+            setTimeout(() => {
+                typeof cb === 'function' && cb(hasGeoJSON)
+            }, delay * 1000)
         })
     }
 }
